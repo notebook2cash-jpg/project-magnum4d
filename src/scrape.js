@@ -6,6 +6,48 @@ const cheerio = require("cheerio");
 const SOURCE_URL = "https://www.magnum4d.my/";
 const OUTPUT_PATH = path.join(__dirname, "..", "data", "latest.json");
 
+function formatThaiDrawDate(drawDateText) {
+  const match = drawDateText.match(
+    /^([0-9]{1,2})\s+([A-Za-z]{3})\s+([0-9]{4})\s+\(([A-Za-z]{3})\)$/
+  );
+
+  if (!match) {
+    return drawDateText;
+  }
+
+  const monthMap = {
+    Jan: "ม.ค.",
+    Feb: "ก.พ.",
+    Mar: "มี.ค.",
+    Apr: "เม.ย.",
+    May: "พ.ค.",
+    Jun: "มิ.ย.",
+    Jul: "ก.ค.",
+    Aug: "ส.ค.",
+    Sep: "ก.ย.",
+    Oct: "ต.ค.",
+    Nov: "พ.ย.",
+    Dec: "ธ.ค.",
+  };
+
+  const dayMap = {
+    Mon: "จันทร์",
+    Tue: "อังคาร",
+    Wed: "พุธ",
+    Thu: "พฤหัสบดี",
+    Fri: "ศุกร์",
+    Sat: "เสาร์",
+    Sun: "อาทิตย์",
+  };
+
+  const day = match[1];
+  const month = monthMap[match[2]] || match[2];
+  const yearBE = Number(match[3]) + 543;
+  const dayName = dayMap[match[4]] || match[4];
+
+  return `${day} ${month} ${yearBE} (${dayName})`;
+}
+
 function parseDrawMeta(pageText) {
   const drawMatch = pageText.match(
     /Draw Results\s*([0-9/]+)\s*:\s*([0-9]{1,2}\s+[A-Za-z]{3}\s+[0-9]{4}\s+\([A-Za-z]{3}\))/i
@@ -18,6 +60,7 @@ function parseDrawMeta(pageText) {
   return {
     drawId: drawMatch[1],
     drawDateText: drawMatch[2],
+    drawDateTextTh: formatThaiDrawDate(drawMatch[2]),
   };
 }
 
@@ -66,6 +109,7 @@ async function fetchLatestResult() {
     fetchedAt: new Date().toISOString(),
     drawId: drawMeta.drawId,
     drawDateText: drawMeta.drawDateText,
+    drawDateTextTh: drawMeta.drawDateTextTh,
     fourDClassic: classicResult,
   };
 }

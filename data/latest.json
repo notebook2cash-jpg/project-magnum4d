@@ -1,8 +1,13 @@
 {
   "source": "https://www.magnum4d.my/",
+<<<<<<< HEAD
   "fetchedAt": "2026-02-14T02:59:17.528Z",
+=======
+  "fetchedAt": "2026-02-14T03:02:04.026Z",
+>>>>>>> f2a7829 (feat: add Thai formatted draw date)
   "drawId": "326/26",
   "drawDateText": "11 Feb 2026 (Wed)",
+  "drawDateTextTh": "11 ก.พ. 2569 (พุธ)",
   "fourDClassic": {
     "firstPrize": "9674",
     "secondPrize": "9187",
