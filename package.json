@@ -1,0 +1,21 @@
+{
+  "name": "project-magnum4d",
+  "version": "1.0.0",
+  "description": "Magnum4D Classic daily scraper data-only project",
+  "main": "src/scrape.js",
+  "scripts": {
+    "scrape": "node src/scrape.js",
+    "update:data": "node src/scrape.js",
+    "test": "echo \"No tests configured\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.13.5",
+    "cheerio": "^1.2.0",
+    "express": "^5.2.1",
+    "node-cron": "^4.2.1"
+  }
+}
