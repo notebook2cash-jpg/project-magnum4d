@@ -1,122 +1,137 @@
 const fs = require("fs/promises");
 const path = require("path");
 const axios = require("axios");
-const cheerio = require("cheerio");
 
 const SOURCE_URL = "https://www.magnum4d.my/";
+const RESULTS_API = "https://www.magnum4d.my/results/latest";
 const OUTPUT_PATH = path.join(__dirname, "..", "data", "latest.json");
 
-function formatThaiDrawDate(drawDateText) {
-  const match = drawDateText.match(
-    /^([0-9]{1,2})\s+([A-Za-z]{3})\s+([0-9]{4})\s+\(([A-Za-z]{3})\)$/
-  );
+const MONTH_EN_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
+const MONTH_TH_SHORT = {
+  Jan: "ม.ค.",
+  Feb: "ก.พ.",
+  Mar: "มี.ค.",
+  Apr: "เม.ย.",
+  May: "พ.ค.",
+  Jun: "มิ.ย.",
+  Jul: "ก.ค.",
+  Aug: "ส.ค.",
+  Sep: "ก.ย.",
+  Oct: "ต.ค.",
+  Nov: "พ.ย.",
+  Dec: "ธ.ค.",
+};
+
+const DAY_TH_FULL = {
+  MON: "จันทร์",
+  TUE: "อังคาร",
+  WED: "พุธ",
+  THU: "พฤหัสบดี",
+  FRI: "ศุกร์",
+  SAT: "เสาร์",
+  SUN: "อาทิตย์",
+};
+
+function toTitleCase(text) {
+  if (!text) return text;
+  return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+}
+
+function parseDrawDate(drawDateRaw, drawDayRaw) {
+  const match = (drawDateRaw || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (!match) {
-    return drawDateText;
+    throw new Error(`รูปแบบ DrawDate ไม่ถูกต้อง: ${drawDateRaw}`);
   }
-
-  const monthMap = {
-    Jan: "ม.ค.",
-    Feb: "ก.พ.",
-    Mar: "มี.ค.",
-    Apr: "เม.ย.",
-    May: "พ.ค.",
-    Jun: "มิ.ย.",
-    Jul: "ก.ค.",
-    Aug: "ส.ค.",
-    Sep: "ก.ย.",
-    Oct: "ต.ค.",
-    Nov: "พ.ย.",
-    Dec: "ธ.ค.",
-  };
-
-  const dayMap = {
-    Mon: "จันทร์",
-    Tue: "อังคาร",
-    Wed: "พุธ",
-    Thu: "พฤหัสบดี",
-    Fri: "ศุกร์",
-    Sat: "เสาร์",
-    Sun: "อาทิตย์",
-  };
 
   const day = match[1];
-  const month = monthMap[match[2]] || match[2];
-  const yearBE = Number(match[3]) + 543;
-  const dayName = dayMap[match[4]] || match[4];
+  const monthIndex = Number(match[2]) - 1;
+  const year = Number(match[3]);
 
-  return `${day} ${month} ${yearBE} (${dayName})`;
-}
-
-function parseDrawMeta(pageText) {
-  const drawMatch = pageText.match(
-    /Draw Results\s*([0-9/]+)\s*:\s*([0-9]{1,2}\s+[A-Za-z]{3}\s+[0-9]{4}\s+\([A-Za-z]{3}\))/i
-  );
-
-  if (!drawMatch) {
-    throw new Error("ไม่พบ Draw ID/Draw Date บนหน้าเว็บ");
+  if (monthIndex < 0 || monthIndex > 11) {
+    throw new Error(`เดือนใน DrawDate ไม่ถูกต้อง: ${drawDateRaw}`);
   }
 
+  const monthEn = MONTH_EN_SHORT[monthIndex];
+  const monthTh = MONTH_TH_SHORT[monthEn];
+  const dayKey = (drawDayRaw || "").toUpperCase();
+  const dayEn = toTitleCase(drawDayRaw || "");
+  const dayTh = DAY_TH_FULL[dayKey] || dayEn;
+
   return {
-    drawId: drawMatch[1],
-    drawDateText: drawMatch[2],
-    drawDateTextTh: formatThaiDrawDate(drawMatch[2]),
+    drawDateText: `${Number(day)} ${monthEn} ${year} (${dayEn})`,
+    drawDateTextTh: `${Number(day)} ${monthTh} ${year + 543} (${dayTh})`,
   };
 }
 
-function parseFourDClassic(pageText) {
-  const sectionMatch = pageText.match(
-    /4D Classic[\s\S]*?Tap a number to see its meaning\.[\s\S]*?1st prize\s*(\d{4})[\s\S]*?2nd Prize\s*(\d{4})[\s\S]*?3rd Prize\s*(\d{4})[\s\S]*?Special([\s\S]*?)Consolation([\s\S]*?)(?:4d jackpot|4D Jackpot)/i
-  );
-
-  if (!sectionMatch) {
-    throw new Error("ไม่พบ section ของ 4D Classic ในหน้าเว็บ");
+function pickNumbers(record, prefix, count) {
+  const result = [];
+  for (let i = 1; i <= count; i++) {
+    const value = record[`${prefix}${i}`];
+    if (typeof value !== "string" || !/^\d{4}$/.test(value)) {
+      throw new Error(
+        `ข้อมูล ${prefix}${i} ไม่ถูกต้อง: ${value === undefined ? "ไม่มีฟิลด์" : value}`
+      );
+    }
+    result.push(value);
   }
+  return result;
+}
 
-  const special = (sectionMatch[4].match(/\b\d{4}\b/g) || []).slice(0, 10);
-  const consolation = (sectionMatch[5].match(/\b\d{4}\b/g) || []).slice(0, 10);
-
-  if (special.length < 10 || consolation.length < 10) {
-    throw new Error("อ่านเลข Special/Consolation ได้ไม่ครบ 10 ตัว");
+function buildClassicResult(record) {
+  for (const key of ["FirstPrize", "SecondPrize", "ThirdPrize"]) {
+    if (typeof record[key] !== "string" || !/^\d{4}$/.test(record[key])) {
+      throw new Error(`ข้อมูล ${key} ไม่ถูกต้อง: ${record[key]}`);
+    }
   }
 
   return {
-    firstPrize: sectionMatch[1],
-    secondPrize: sectionMatch[2],
-    thirdPrize: sectionMatch[3],
-    special,
-    consolation,
+    firstPrize: record.FirstPrize,
+    secondPrize: record.SecondPrize,
+    thirdPrize: record.ThirdPrize,
+    special: pickNumbers(record, "Special", 10),
+    consolation: pickNumbers(record, "Console", 10),
   };
 }
 
 async function fetchLatestResult() {
-  const response = await axios.get(SOURCE_URL, {
+  const response = await axios.get(RESULTS_API, {
     timeout: 30000,
     headers: {
       "User-Agent": "magnum4d-classic-bot/1.0",
-      Accept: "text/html,application/xhtml+xml",
+      Accept: "application/json, text/plain, */*",
+      Referer: SOURCE_URL,
     },
   });
 
-  const $ = cheerio.load(response.data);
-  const text = $("body").text().replace(/\s+/g, " ").trim();
+  const payload = Array.isArray(response.data) ? response.data[0] : response.data;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("ไม่ได้รับข้อมูลจาก /results/latest");
+  }
 
-  const drawMeta = parseDrawMeta(text);
-  const classicResult = parseFourDClassic(text);
+  if (!payload.DrawID || !payload.DrawDate) {
+    throw new Error("ข้อมูลจาก /results/latest ไม่มี DrawID หรือ DrawDate");
+  }
+
+  const { drawDateText, drawDateTextTh } = parseDrawDate(payload.DrawDate, payload.DrawDay);
+  const fourDClassic = buildClassicResult(payload);
 
   return {
     source: SOURCE_URL,
     fetchedAt: new Date().toISOString(),
-    drawId: drawMeta.drawId,
-    drawDateText: drawMeta.drawDateText,
-    drawDateTextTh: drawMeta.drawDateTextTh,
-    fourDClassic: classicResult,
+    drawId: payload.DrawID,
+    drawDateText,
+    drawDateTextTh,
+    fourDClassic,
   };
 }
 
 async function saveLatestResult(result) {
   await fs.mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
-  await fs.writeFile(OUTPUT_PATH, JSON.stringify(result, null, 2), "utf8");
+  await fs.writeFile(OUTPUT_PATH, JSON.stringify(result, null, 2) + "\n", "utf8");
 }
 
 async function run() {
